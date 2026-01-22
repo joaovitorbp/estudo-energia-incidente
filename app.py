@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 
 # ==============================================================================
-# 1. BACKEND: TABELAS E CONSTANTES (IEEE 1584-2018)
+# 1. BACKEND: LÓGICA DE CÁLCULO IEEE 1584-2018
 # ==============================================================================
 TABLE_1 = {'VCB': [-0.04287, 1.035, -0.083, 0, 0, -4.783e-9, 1.962e-6, -0.000229, 0.003141, 1.092], 'VCBB': [-0.017432, 0.98, -0.05, 0, 0, -5.767e-9, 2.524e-6, -0.00034, 0.01187, 1.013], 'HCB': [0.054922, 0.988, -0.11, 0, 0, -5.382e-9, 2.316e-6, -0.000302, 0.0091, 0.9725], 'VOA': [0.043785, 1.04, -0.18, 0, 0, -4.783e-9, 1.962e-6, -0.000229, 0.003141, 1.092], 'HOA': [0.111147, 1.008, -0.24, 0, 0, -3.895e-9, 1.641e-6, -0.000197, 0.002615, 1.1]}
 TABLE_2 = {'VCB': [0, -1.4269e-6, 8.3137e-5, -0.0019382, 0.022366, -0.12645, 0.30226], 'VCBB': [1.138e-6, -6.0287e-5, 0.0012758, -0.013778, 0.080217, -0.24066, 0.33524], 'HCB': [0, -3.097e-6, 0.00016405, -0.0033609, 0.033308, -0.16182, 0.34627], 'VOA': [9.5606e-7, -5.1543e-5, 0.0011161, -0.01242, 0.075125, -0.23584, 0.33696], 'HOA': [0, -3.1555e-6, 0.0001682, -0.0034607, 0.034124, -0.1599, 0.34629]}
@@ -39,11 +39,9 @@ def calcular_ees_correto(C, H, W, D, V):
     return (H1 + W1)/2, "Typical (Típico)", H1, W1
 
 def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_mm):
-    # Verificação de segurança: se algum valor for None, retorna None
+    # Verificações de segurança
     if any(v is None for v in [Voc_V, Ibf, Config, Gap, Dist, H_mm, W_mm, D_mm]):
         return None
-    
-    # Proteção contra zeros matemáticos
     if Ibf <= 0 or Gap <= 0 or Dist <= 0:
         return None
 
@@ -62,7 +60,7 @@ def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_m
     
     Iarc = 1 / math.sqrt(term_a * term_b)
     
-    # 2. Caixa / Fator Correção
+    # 2. Caixa
     is_open = Config in ['VOA', 'HOA']
     if is_open: 
         CF, box_type, EES, H1, W1 = 1.0, "Open Air (Ar Livre)", 0.0, 0.0, 0.0
@@ -73,13 +71,12 @@ def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_m
         CF = 1/(b[0]*EES**2 + b[1]*EES + b[2]) if "Shallow" in box_type else b[0]*EES**2 + b[1]*EES + b[2]
         b_coeffs = b
 
-    # 3. Corrente Reduzida
+    # 3. Imin
     vk = TABLE_2[Config]
     VarCf = vk[0]*Voc**6 + vk[1]*Voc**5 + vk[2]*Voc**4 + vk[3]*Voc**3 + vk[4]*Voc**2 + vk[5]*Voc + vk[6]
     Imin = Iarc * (1 - 0.5 * VarCf)
     
-    # Se os tempos não foram informados (None ou 0), calculamos apenas correntes
-    # Para o cálculo de energia, usamos 0 temporariamente se for None
+    # Trata None como 0 para cálculo temporário
     T_calc_nom = T_ms if T_ms is not None else 0
     T_calc_min = T_min_ms if T_min_ms is not None else 0
     
@@ -91,10 +88,8 @@ def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_m
         C3 = tk[10]*log10(Ibf) + tk[11]*log10(Dist) + log10(1/CF)
         exponent = tk[0] + tk[1]*log10(Gap) + (tk[2]*Iarc600/C2) + C3 + tk[12]*log10(I_curr)
         E = ((12.552/50)*Time*(10**exponent))/4.184
-        
         if E > 0: AFB = Dist * (1.2/E)**(1/tk[11])
         else: AFB = 0
-            
         return E, AFB, exponent, C2, C3
 
     E_cal, AFB, exp1, C2_final, C3_final = get_energy(Iarc, T_calc_nom)
@@ -117,40 +112,45 @@ def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_m
     }
 
 # ==============================================================================
-# 3. FRONTEND: STREAMLIT APP (V5.0)
+# 3. FRONTEND: STREAMLIT APP (V6.0)
 # ==============================================================================
 st.set_page_config(page_title="Calc. Energia Incidente", layout="wide")
 
-# CSS Ajustado:
-# 1. info-box agora tem cor de texto preta (#000) forçada para não sumir no modo Dark.
-# 2. padding aumentado para melhorar a proporção visual.
 st.markdown("""
 <style>
+    /* Estilo dos Boxes de Corrente (Menos destaque) */
     .info-box { 
-        background-color: #f0f2f6; 
-        padding: 20px; 
-        border-radius: 8px; 
+        background-color: #f8f9fa; /* Fundo bem claro */
+        padding: 10px; 
+        border-radius: 6px; 
         text-align: center; 
-        border: 1px solid #d6d6d8; 
+        border: 1px solid #e0e0e0; 
         height: 100%;
-        color: #000000 !important; /* FORÇA TEXTO PRETO */
+        color: #333 !important; 
     }
     .info-label {
-        font-size: 14px;
-        color: #31333F !important;
+        font-size: 13px;
+        color: #666 !important;
         font-weight: 500;
+        margin-bottom: 5px;
     }
     .info-value {
-        font-size: 24px;
+        font-size: 18px; /* Fonte reduzida (era 24px) */
         font-weight: bold;
-        color: #007bff !important;
+        color: #0056b3 !important; /* Azul mais sóbrio */
     }
+    
+    /* Estilo do Box de Risco (Resultado Final - Destaque Mantido) */
     .risk-box { color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 20px; }
+    
+    /* Centralização de inputs */
     .stNumberInput input { text-align: center; }
+    
+    /* Detalhes */
     .detail-row { border-bottom: 1px solid #eee; padding: 8px 0; font-family: monospace; font-size: 14px; }
     .detail-label { font-weight: bold; color: #444; }
     .detail-val { color: #007bff; float: right; }
-    .sub-result { background-color: #f8f9fa; padding: 10px; border-radius: 5px; border: 1px solid #ddd; text-align: center; color: #000;}
+    .sub-result { background-color: #fff; padding: 10px; border-radius: 5px; border: 1px solid #ddd; text-align: center; color: #000;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -165,33 +165,33 @@ st.title("⚡ Calculadora de Energia Incidente")
 st.subheader("1. Dados do Sistema Elétrico")
 
 c1, c2, c3, c4 = st.columns(4)
-# index=None deixa em branco
 voltage = c1.selectbox("Tensão (V)", [220, 380, 440, 480], index=None, placeholder="Selecione...")
 config_electrode = c2.selectbox("Configuração", ["VCB", "VCBB", "HCB", "VOA", "HOA"], index=None, placeholder="Selecione...")
 
-# value=None deixa em branco, step=1.0 faz o botão pular de 1 em 1
+# Icc continua Float
 ibf_ka = c3.number_input("Icc - Curto Circuito (kA)", min_value=0.0, value=None, step=1.0, format="%.2f")
-gap_mm = c4.number_input("Gap entre Condutores (mm)", min_value=0.0, value=None, step=1.0, format="%.1f")
+
+# Gap vira Inteiro (step=1, format="%d", min_value=0)
+gap_mm = c4.number_input("Gap entre Condutores (mm)", min_value=0, value=None, step=1, format="%d")
 
 c5, c6, c7, c8 = st.columns(4)
-dist_mm = c5.number_input("Dist. Trabalho (mm)", min_value=0.0, value=None, step=1.0, format="%.0f")
+# Distância vira Inteiro
+dist_mm = c5.number_input("Dist. Trabalho (mm)", min_value=0, value=None, step=1, format="%d")
 
-# Controle de disable
 is_open = config_electrode in ['VOA', 'HOA']
-h_mm = c6.number_input("Altura Painel (H) [mm]", min_value=0.0, value=None, step=1.0, disabled=is_open)
-w_mm = c7.number_input("Largura Painel (W) [mm]", min_value=0.0, value=None, step=1.0, disabled=is_open)
-d_mm = c8.number_input("Profundidade (D) [mm]", min_value=0.0, value=None, step=1.0, disabled=is_open)
+# Dimensões viram Inteiros
+h_mm = c6.number_input("Altura Painel (H) [mm]", min_value=0, value=None, step=1, disabled=is_open, format="%d")
+w_mm = c7.number_input("Largura Painel (W) [mm]", min_value=0, value=None, step=1, disabled=is_open, format="%d")
+d_mm = c8.number_input("Profundidade (D) [mm]", min_value=0, value=None, step=1, disabled=is_open, format="%d")
 
 st.markdown("---")
 
-# --- PRÉ-CÁLCULO AUTOMÁTICO DAS CORRENTES ---
-# Só calcula se todos os campos obrigatórios estiverem preenchidos (não forem None)
+# --- PRÉ-CÁLCULO AUTOMÁTICO ---
 pre_res = calcular_tudo(voltage, ibf_ka, config_electrode, gap_mm, dist_mm, 0, 0, h_mm, w_mm, d_mm)
 
 # --- SEÇÃO 2: PROTEÇÃO E TEMPOS ---
 st.subheader("2. Definição de Tempos de Proteção")
 
-# Layout de Colunas
 cp1, cp2 = st.columns(2)
 
 with cp1:
@@ -201,7 +201,7 @@ with cp1:
     val_iarc = f"{pre_res['i_arc']:.3f} kA" if pre_res else "- kA"
     
     with col_a:
-        # Info Box com CSS corrigido (Texto Preto e Padding maior)
+        # Box de Corrente com estilo mais discreto (font 18px)
         st.markdown(f"""
         <div class="info-box">
             <div class="info-label">Corrente (Iarc)</div>
@@ -209,7 +209,7 @@ with cp1:
         </div>
         """, unsafe_allow_html=True)
     with col_b:
-        time_ms = st.number_input("Tempo de Atuação (ms)", min_value=0.0, value=None, step=1.0, format="%.1f", key="t_nom")
+        time_ms = st.number_input("Tempo de Atuação (ms)", min_value=0.0, value=None, step=0.1, format="%.1f", key="t_nom")
 
 with cp2:
     st.markdown("##### Cenário Reduzido")
@@ -218,7 +218,7 @@ with cp2:
     val_imin = f"{pre_res['i_min']:.3f} kA" if pre_res else "- kA"
     
     with col_c:
-        # Info Box com CSS corrigido
+        # Box de Corrente com estilo mais discreto
         st.markdown(f"""
         <div class="info-box">
             <div class="info-label">Corrente (Imin)</div>
@@ -226,11 +226,11 @@ with cp2:
         </div>
         """, unsafe_allow_html=True)
     with col_d:
-        time_min_ms = st.number_input("Tempo de Atuação (ms)", min_value=0.0, value=None, step=1.0, format="%.1f", key="t_min")
+        time_min_ms = st.number_input("Tempo de Atuação (ms)", min_value=0.0, value=None, step=0.1, format="%.1f", key="t_min")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- BOTÃO PARA CALCULAR ENERGIA ---
+# --- BOTÃO PARA CALCULAR ---
 calc_btn = st.button("CALCULAR ENERGIA FINAL", type="primary", use_container_width=True)
 
 # --- SEÇÃO 3: RESULTADOS ---
@@ -240,7 +240,6 @@ if calc_btn:
     elif time_ms is None and time_min_ms is None:
         st.warning("⚠️ Preencha pelo menos um tempo de atuação.")
     else:
-        # Cálculo Definitivo (trata None como 0 internamente)
         final_res = calcular_tudo(voltage, ibf_ka, config_electrode, gap_mm, dist_mm, time_ms, time_min_ms, h_mm, w_mm, d_mm)
         
         st.markdown("---")
@@ -248,31 +247,16 @@ if calc_btn:
         
         # 3.1 Comparativo
         r1, r2 = st.columns(2)
-        
         with r1:
-            st.markdown(f"""
-            <div class="sub-result">
-                <strong>Cenário Nominal</strong><br>
-                Energia: <b>{final_res['e_nominal']:.2f} cal/cm²</b><br>
-                AFB: <b>{final_res['afb_nominal']:.0f} mm</b>
-            </div>
-            """, unsafe_allow_html=True)
-            
+            st.markdown(f"""<div class="sub-result"><strong>Cenário Nominal</strong><br>Energia: <b>{final_res['e_nominal']:.2f} cal/cm²</b><br>AFB: <b>{final_res['afb_nominal']:.0f} mm</b></div>""", unsafe_allow_html=True)
         with r2:
-            st.markdown(f"""
-            <div class="sub-result">
-                <strong>Cenário Reduzido</strong><br>
-                Energia: <b>{final_res['e_min']:.2f} cal/cm²</b><br>
-                AFB: <b>{final_res['afb_min']:.0f} mm</b>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="sub-result"><strong>Cenário Reduzido</strong><br>Energia: <b>{final_res['e_min']:.2f} cal/cm²</b><br>AFB: <b>{final_res['afb_min']:.0f} mm</b></div>""", unsafe_allow_html=True)
 
-        # 3.2 Resultado Final
+        # 3.2 Resultado Final (Destaque Mantido)
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("#### ✅ Resultado Final (Pior Caso)")
         
         cat_txt, color_hex = obter_categoria_nfpa(final_res['e_final'])
-        
         rf1, rf2, rf3 = st.columns([1, 1, 1.5])
         with rf1:
             st.metric("Energia Incidente Final", f"{final_res['e_final']:.2f} cal/cm²")
@@ -282,7 +266,7 @@ if calc_btn:
         with rf3:
             st.markdown(f"""<div class="risk-box" style="background-color: {color_hex};">{cat_txt}</div>""", unsafe_allow_html=True)
 
-        # 3.3 Memória de Cálculo
+        # 3.3 Memória
         st.markdown("<br>", unsafe_allow_html=True)
         with st.expander("📝 Memória de Cálculo Detalhada (Coeficientes e Variáveis)"):
             d = final_res
