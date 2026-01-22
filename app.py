@@ -92,7 +92,7 @@ def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_m
     }
 
 # ==============================================================================
-# 3. FRONTEND: STREAMLIT APP (V23.0 - CALLBACKS & FIX EXCEL)
+# 3. FRONTEND: STREAMLIT APP (V24.0 FINAL AJUSTADA)
 # ==============================================================================
 st.set_page_config(page_title="Calc. Energia Incidente", layout="wide")
 
@@ -133,7 +133,8 @@ st.markdown("""
 
 with st.sidebar:
     st.header("Identificação")
-    equip_name = st.text_input("TAG do Equipamento", value="", key="equip_tag") # Sem callback, pois não afeta cálculo
+    # Equipamento agora com key no session_state mas sem callback (não reseta cálculo)
+    equip_name = st.text_input("TAG do Equipamento", value="", key="equip_tag")
     st.caption("Desenvolvido em Python | IEEE 1584-2018")
 
 st.title("⚡ Calculadora de Energia Incidente")
@@ -168,8 +169,7 @@ with cp1:
     col_a, col_b = st.columns([1, 1.5])
     val_iarc = f"{pre_res['i_arc']:.3f}" if pre_res else "-"
     with col_a: card("Corrente de Arco", val_iarc, "kA")
-    # Time Input conectado ao Session State
-    with col_b: st.number_input("Tempo de Atuação Cenário Nominal (ms)", min_value=0.0, step=0.1, format="%.1f", key="t_nom", on_change=on_time_change)
+    with col_b: time_ms = st.number_input("Tempo de Atuação Cenário Nominal (ms)", min_value=0.0, value=None, step=0.1, format="%.1f", key="t_nom", on_change=on_time_change)
 
 with cp_sep: st.markdown('<div class="vertical-divider"></div>', unsafe_allow_html=True)
 
@@ -178,21 +178,20 @@ with cp2:
     col_c, col_d = st.columns([1, 1.5])
     val_imin = f"{pre_res['i_min']:.3f}" if pre_res else "-"
     with col_c: card("Corrente de Arco Red.", val_imin, "kA")
-    # Time Input conectado ao Session State
-    with col_d: st.number_input("Tempo de Atuação Cenário Reduzido (ms)", min_value=0.0, step=0.1, format="%.1f", key="t_min", on_change=on_time_change)
+    with col_d: time_min_ms = st.number_input("Tempo de Atuação Cenário Reduzido (ms)", min_value=0.0, value=None, step=0.1, format="%.1f", key="t_min", on_change=on_time_change)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 if st.button("CALCULAR ENERGIA FINAL", type="primary", use_container_width=True):
     if not pre_res:
         st.warning("⚠️ Preencha os dados do sistema primeiro.")
-    elif st.session_state.t_nom <= 0 and st.session_state.t_min <= 0:
-        st.warning("⚠️ Preencha pelo menos um tempo de atuação.")
+    # CORREÇÃO: Ambos devem ser maiores que 0 (Lógica OR para erro)
+    elif st.session_state.t_nom <= 0 or st.session_state.t_min <= 0:
+        st.warning("⚠️ Preencha os dois tempos de atuação (Nominal e Reduzido).")
     else:
-        # Usa os tempos do session_state
         final_res = calcular_tudo(voltage, ibf_ka, config_electrode, gap_mm, dist_mm, st.session_state.t_nom, st.session_state.t_min, h_mm, w_mm, d_mm)
         st.session_state.results = final_res
-        st.session_state.inputs = {'voltage': voltage, 'dist_mm': dist_mm, 'equip_name': equip_name}
+        st.session_state.inputs = {'voltage': voltage, 'dist_mm': dist_mm} # Equip name pegaremos dinamicamente
 
 if st.session_state.results:
     res = st.session_state.results
@@ -234,13 +233,12 @@ if st.session_state.results:
             wb = load_workbook("ADESIVO ENERGIA INCIDENTE - MODELO.xlsx")
             ws = wb.active
         except Exception as e:
-            st.error(f"Erro ao carregar o modelo: {e}. Verifique se 'ADESIVO ENERGIA INCIDENTE - MODELO.xlsx' está no GitHub.")
+            st.error(f"Erro ao carregar o modelo: {e}. Verifique se o arquivo está no GitHub.")
             return None
 
         # Helper para escrever na célula e lidar com Merge
         def write_cell(ws, r, c, val):
             cell = ws.cell(row=r, column=c)
-            # Se for merged, pega a top-left
             if isinstance(cell, MergedCell):
                 for range_ in ws.merged_cells.ranges:
                     if cell.coordinate in range_:
@@ -281,15 +279,14 @@ if st.session_state.results:
         fill_label(ws, "Zona controlada:", f"{zc} mm", 1)
         fill_label(ws, "Zona de risco:", f"{zr} mm", 1)
         
-        # 2. Preenchimento do Equipamento (Busca Inteligente da Label)
-        # Substitui o texto "Equipamento: ..." pelo novo valor
-        equip_text = f"Equipamento: {inp['equip_name'] or 'N/A'}"
-        fill_label(ws, "Equipamento:", equip_text, 0) # Offset 0 = Substitui a própria célula
+        # 2. Preenchimento do Equipamento Dinâmico (Usa o valor atual da widget)
+        # Pega o valor atual do input, independente do momento do cálculo
+        nome_atual = st.session_state.equip_tag 
+        equip_text = f"Equipamento: {nome_atual or 'N/A'}"
+        fill_label(ws, "Equipamento:", equip_text, 0)
 
-        # 3. Data (Assumindo posição aproximada se não achar label)
-        # Tenta achar um campo de data ou escreve em uma posição fixa segura (ex: canto inferior direito)
+        # 3. Data
         try:
-            # Escreve data atual na linha 13, coluna 9 (aprox. I13) se não quebrar nada
             write_cell(ws, 13, 9, datetime.now().strftime('%b/%Y').upper())
         except: pass
 
@@ -299,7 +296,9 @@ if st.session_state.results:
 
     excel_data = preencher_modelo_excel()
     if excel_data:
-        f_name = f"Adesivo_{st.session_state.inputs['equip_name']}.xlsx" if st.session_state.inputs['equip_name'] else "Adesivo_ArcFlash.xlsx"
+        # Nome do arquivo também usa o valor atual da tag
+        f_tag = st.session_state.equip_tag
+        f_name = f"Adesivo_{f_tag}.xlsx" if f_tag else "Adesivo_ArcFlash.xlsx"
         
         st.download_button(
             label="📥 Baixar Adesivo (Modelo Preenchido)",
