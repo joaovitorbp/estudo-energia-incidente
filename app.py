@@ -92,7 +92,7 @@ def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_m
     }
 
 # ==============================================================================
-# 3. FRONTEND: STREAMLIT APP (V25.0 FINAL + FIX INPUTS)
+# 3. FRONTEND: STREAMLIT APP (V26.0 FINAL + FIX EXCEL ESCAPE)
 # ==============================================================================
 st.set_page_config(page_title="Calc. Energia Incidente", layout="wide")
 
@@ -267,7 +267,10 @@ if st.session_state.results:
         fill_label(ws, "Energia incidente", f"{res['e_final']:.2f} cal/cm²", 2)
         fill_label(ws, "Limite do arco", f"{res['afb_final']:.0f} mm", 2)
         fill_label(ws, "Distância de trabalho", f"{inp['dist_mm']} mm", 2)
-        fill_label(ws, "Categoria de risco", cat_name, 2)
+        
+        # CORREÇÃO HTML -> EXCEL: Trocando &lt; por <
+        cat_name_clean = cat_name.replace('&lt;', '<')
+        fill_label(ws, "Categoria de risco", cat_name_clean, 2)
         fill_label(ws, "Suportabilidade mínima", cat_rate.replace('Min. ', ''), 2)
         
         fill_label(ws, "Classe:", classe, 1)
