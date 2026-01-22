@@ -4,13 +4,11 @@ import pandas as pd
 import numpy as np
 
 # ==============================================================================
-# 1. BACKEND: LÓGICA DE CÁLCULO IEEE 1584-2018 (CORRIGIDO)
+# 1. BACKEND: LÓGICA DE CÁLCULO IEEE 1584-2018 (INTACTO)
 # ==============================================================================
 TABLE_1 = {'VCB': [-0.04287, 1.035, -0.083, 0, 0, -4.783e-9, 1.962e-6, -0.000229, 0.003141, 1.092], 'VCBB': [-0.017432, 0.98, -0.05, 0, 0, -5.767e-9, 2.524e-6, -0.00034, 0.01187, 1.013], 'HCB': [0.054922, 0.988, -0.11, 0, 0, -5.382e-9, 2.316e-6, -0.000302, 0.0091, 0.9725], 'VOA': [0.043785, 1.04, -0.18, 0, 0, -4.783e-9, 1.962e-6, -0.000229, 0.003141, 1.092], 'HOA': [0.111147, 1.008, -0.24, 0, 0, -3.895e-9, 1.641e-6, -0.000197, 0.002615, 1.1]}
 TABLE_2 = {'VCB': [0, -1.4269e-6, 8.3137e-5, -0.0019382, 0.022366, -0.12645, 0.30226], 'VCBB': [1.138e-6, -6.0287e-5, 0.0012758, -0.013778, 0.080217, -0.24066, 0.33524], 'HCB': [0, -3.097e-6, 0.00016405, -0.0033609, 0.033308, -0.16182, 0.34627], 'VOA': [9.5606e-7, -5.1543e-5, 0.0011161, -0.01242, 0.075125, -0.23584, 0.33696], 'HOA': [0, -3.1555e-6, 0.0001682, -0.0034607, 0.034124, -0.1599, 0.34629]}
 TABLE_3 = {'VCB': [0.753364, 0.566, 1.752636, 0, 0, -4.783e-9, 1.962e-6, -0.000229, 0.003141, 1.092, 0, -1.598, 0.957], 'VCBB': [3.068459, 0.26, -0.098107, 0, 0, -5.767e-9, 2.524e-6, -0.00034, 0.01187, 1.013, -0.06, -1.809, 1.19], 'HCB': [4.073745, 0.344, -0.370259, 0, 0, -5.382e-9, 2.316e-6, -0.000302, 0.0091, 0.9725, 0, -2.03, 1.036], 'VOA': [0.679294, 0.746, 1.222636, 0, 0, -4.783e-9, 1.962e-6, -0.000229, 0.003141, 1.092, 0, -1.598, 0.997], 'HOA': [3.470417, 0.465, -0.261863, 0, 0, -3.895e-9, 1.641e-6, -0.000197, 0.002615, 1.1, 0, -1.99, 1.04]}
-
-# --- TABELAS QUE FALTAVAM ---
 TABLE_7_TYPICAL = {'VCB': [-0.000302, 0.03441, 0.4325], 'VCBB': [-0.0002976, 0.032, 0.479], 'HCB': [-0.0001923, 0.01935, 0.6899]}
 TABLE_7_SHALLOW = {'VCB': [0.002222, -0.02556, 0.6222], 'VCBB': [-0.002778, 0.1194, -0.2778], 'HCB': [-0.0005556, 0.03722, 0.4778]}
 CONSTANTS_AB = {'VCB':  {'A': 4,  'B': 20}, 'VCBB': {'A': 10, 'B': 24}, 'HCB':  {'A': 10, 'B': 22}}
@@ -41,7 +39,6 @@ def calcular_ees_correto(C, H, W, D, V):
     return (H1 + W1)/2, "Typical (Típico)", H1, W1
 
 def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_mm):
-    # Proteção de Nulos e Zeros
     if any(v is None for v in [Voc_V, Ibf, Config, Gap, Dist, H_mm, W_mm, D_mm]):
         return None
     if Ibf <= 0 or Gap <= 0 or Dist <= 0:
@@ -63,7 +60,6 @@ def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_m
         b_coeffs = []
     else:
         EES, box_type, H1, W1 = calcular_ees_correto(Config, H_mm, W_mm, D_mm, Voc)
-        # O ERRO ESTAVA AQUI: Faltavam as tabelas TABLE_7 na definição global
         b = TABLE_7_SHALLOW[Config] if "Shallow" in box_type else TABLE_7_TYPICAL[Config]
         CF = 1/(b[0]*EES**2 + b[1]*EES + b[2]) if "Shallow" in box_type else b[0]*EES**2 + b[1]*EES + b[2]
         b_coeffs = b
@@ -102,14 +98,12 @@ def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_m
     }
 
 # ==============================================================================
-# 3. FRONTEND: STREAMLIT APP (V10.1 CORRIGIDA)
+# 3. FRONTEND: STREAMLIT APP (V11.0)
 # ==============================================================================
 st.set_page_config(page_title="Calc. Energia Incidente", layout="wide")
 
 st.markdown("""
 <style>
-    /* DESIGN SYSTEM UNIFICADO: CARTÕES (CARDS) */
-    
     /* 1. Base do Cartão (Usado em Seção 2 e 3) */
     .std-card {
         background-color: #ffffff;
@@ -138,7 +132,7 @@ st.markdown("""
     .card-value {
         font-size: 20px;
         font-weight: 700;
-        color: #111827;
+        color: #111827; /* Será sobrescrito pelo inline style */
     }
     
     .card-unit {
@@ -176,6 +170,14 @@ st.markdown("""
     .detail-row { border-bottom: 1px solid #eee; padding: 8px 0; font-family: monospace; font-size: 14px; }
     .detail-label { font-weight: bold; color: #444; }
     .detail-val { color: #007bff; float: right; }
+    
+    /* Linha divisória vertical para Seção 3 */
+    .vertical-divider {
+        border-right: 1px solid #e5e7eb;
+        height: 100%;
+        width: 1px;
+        margin: 0 auto;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -208,7 +210,8 @@ pre_res = calcular_tudo(voltage, ibf_ka, config_electrode, gap_mm, dist_mm, 0, 0
 # --- SEÇÃO 2: PROTEÇÃO E TEMPOS ---
 st.subheader("2. Definição de Tempos de Proteção")
 
-def card(label, value, unit="", color="#111827"):
+# Helper para cartões unificados (Cor padrão azul #0056b3)
+def card(label, value, unit="", color="#0056b3"):
     st.markdown(f"""
     <div class="std-card">
         <div class="card-label">{label}</div>
@@ -222,14 +225,14 @@ with cp1:
     st.markdown("##### Cenário Nominal")
     col_a, col_b = st.columns([1, 1.5])
     val_iarc = f"{pre_res['i_arc']:.3f}" if pre_res else "-"
-    with col_a: card("Corrente (Iarc)", val_iarc, "kA", "#0056b3")
+    with col_a: card("Corrente (Iarc)", val_iarc, "kA")
     with col_b: time_ms = st.number_input("Tempo de Atuação (ms)", min_value=0.0, value=None, step=0.1, format="%.1f", key="t_nom")
 
 with cp2:
     st.markdown("##### Cenário Reduzido")
     col_c, col_d = st.columns([1, 1.5])
     val_imin = f"{pre_res['i_min']:.3f}" if pre_res else "-"
-    with col_c: card("Corrente (Imin)", val_imin, "kA", "#0056b3")
+    with col_c: card("Corrente (Imin)", val_imin, "kA")
     with col_d: time_min_ms = st.number_input("Tempo de Atuação (ms)", min_value=0.0, value=None, step=0.1, format="%.1f", key="t_min")
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -245,15 +248,21 @@ if calc_btn:
         final_res = calcular_tudo(voltage, ibf_ka, config_electrode, gap_mm, dist_mm, time_ms, time_min_ms, h_mm, w_mm, d_mm)
         st.markdown("---")
         
-        # --- SEÇÃO 3: INTERMEDIÁRIOS ---
+        # --- SEÇÃO 3: INTERMEDIÁRIOS (COM SEPARADOR) ---
         st.subheader("3. Resultados Intermediários")
         
-        ri1, ri2 = st.columns(2)
+        # Layout 3 colunas: [Nominal] [Linha] [Reduzido]
+        ri1, r_sep, ri2 = st.columns([1, 0.1, 1])
+        
         with ri1:
             st.caption("CENÁRIO NOMINAL")
             c_nom1, c_nom2 = st.columns(2)
             with c_nom1: card("Energia", f"{final_res['e_nominal']:.2f}", "cal/cm²")
             with c_nom2: card("AFB", f"{final_res['afb_nominal']:.0f}", "mm")
+            
+        with r_sep:
+            # Linha vertical via CSS hack simples
+            st.markdown('<div class="vertical-divider"></div>', unsafe_allow_html=True)
             
         with ri2:
             st.caption("CENÁRIO REDUZIDO")
@@ -261,7 +270,7 @@ if calc_btn:
             with c_red1: card("Energia", f"{final_res['e_min']:.2f}", "cal/cm²")
             with c_red2: card("AFB", f"{final_res['afb_min']:.0f}", "mm")
 
-        # --- SEÇÃO 4: FINAL ---
+        # --- SEÇÃO 4: FINAL (HERO CARD) ---
         st.markdown("<br>", unsafe_allow_html=True)
         st.subheader("4. Resultados Finais")
         
@@ -273,11 +282,13 @@ if calc_btn:
             <div class="hero-card" style="border-color: {color_hex};">
                 <div class="hero-label">Energia Incidente Final (Pior Caso)</div>
                 <div class="hero-value" style="color: {color_hex}">{final_res['e_final']:.2f} <span style="font-size:24px; color:#6b7280; font-weight:400;">cal/cm²</span></div>
+                
                 <div style="margin-top: 15px;">
                     <span style="background-color: {color_hex}; color: white; padding: 6px 16px; border-radius: 20px; font-weight: bold; font-size: 16px;">
                         {cat_txt}
                     </span>
                 </div>
+                
                 <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 14px;">
                     Fronteira de Arco (AFB): <b>{final_res['afb_final']:.0f} mm</b> &nbsp;•&nbsp; Cenário Definidor: <b>{final_res['pior_caso']}</b>
                 </div>
