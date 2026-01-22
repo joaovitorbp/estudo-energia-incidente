@@ -99,7 +99,7 @@ def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_m
     }
 
 # ==============================================================================
-# 3. FRONTEND: STREAMLIT APP (V17.0 FINAL)
+# 3. FRONTEND: STREAMLIT APP (V18.0 FINAL AJUSTADA)
 # ==============================================================================
 st.set_page_config(page_title="Calc. Energia Incidente", layout="wide")
 
@@ -201,17 +201,17 @@ st.title("⚡ Calculadora de Energia Incidente")
 st.subheader("1. Dados do Sistema Elétrico")
 
 c1, c2, c3, c4 = st.columns(4)
-voltage = c1.selectbox("Tensão (V)", [220, 380, 440, 480], index=None, placeholder="Selecione...")
+voltage = c1.selectbox("Tensão de Alimentação (V)", [220, 380, 440, 480], index=None, placeholder="Selecione...")
 config_electrode = c2.selectbox("Configuração", ["VCB", "VCBB", "HCB", "VOA", "HOA"], index=None, placeholder="Selecione...")
-ibf_ka = c3.number_input("Icc - Curto Circuito (kA)", min_value=0.0, value=None, step=1.0, format="%.2f")
-gap_mm = c4.number_input("Gap entre Condutores (mm)", min_value=0, value=None, step=1, format="%d")
+ibf_ka = c3.number_input("Corrente de Curto Circuito (kA)", min_value=0.0, value=None, step=1.0, format="%.2f")
+gap_mm = c4.number_input("Distância entre Condutores (mm)", min_value=0, value=None, step=1, format="%d")
 
 c5, c6, c7, c8 = st.columns(4)
-dist_mm = c5.number_input("Dist. Trabalho (mm)", min_value=0, value=None, step=1, format="%d")
+dist_mm = c5.number_input("Distância de Trabalho (mm)", min_value=0, value=None, step=1, format="%d")
 is_open = config_electrode in ['VOA', 'HOA']
-h_mm = c6.number_input("Altura Painel (H) [mm]", min_value=0, value=None, step=1, disabled=is_open, format="%d")
-w_mm = c7.number_input("Largura Painel (W) [mm]", min_value=0, value=None, step=1, disabled=is_open, format="%d")
-d_mm = c8.number_input("Profundidade (D) [mm]", min_value=0, value=None, step=1, disabled=is_open, format="%d")
+h_mm = c6.number_input("Altura do Painel (mm)", min_value=0, value=None, step=1, disabled=is_open, format="%d")
+w_mm = c7.number_input("Largura do Painel (mm)", min_value=0, value=None, step=1, disabled=is_open, format="%d")
+d_mm = c8.number_input("Profundidade do Painel (mm)", min_value=0, value=None, step=1, disabled=is_open, format="%d")
 
 st.markdown("---")
 pre_res = calcular_tudo(voltage, ibf_ka, config_electrode, gap_mm, dist_mm, 0, 0, h_mm, w_mm, d_mm)
@@ -227,21 +227,25 @@ def card(label, value, unit="", color="#0056b3"):
     </div>
     """, unsafe_allow_html=True)
 
-cp1, cp2 = st.columns(2)
+# Layout de 3 Colunas com Separador Vertical
+cp1, cp_sep, cp2 = st.columns([1, 0.1, 1])
 
 with cp1:
     st.markdown("##### Cenário Nominal")
     col_a, col_b = st.columns([1, 1.5])
     val_iarc = f"{pre_res['i_arc']:.3f}" if pre_res else "-"
-    with col_a: card("Corrente (Iarc)", val_iarc, "kA")
-    with col_b: time_ms = st.number_input("Tempo de Atuação (ms)", min_value=0.0, value=None, step=0.1, format="%.1f", key="t_nom")
+    with col_a: card("Corrente de Arco", val_iarc, "kA")
+    with col_b: time_ms = st.number_input("Tempo de Atuação Cenário Nominal (ms)", min_value=0.0, value=None, step=0.1, format="%.1f", key="t_nom")
+
+with cp_sep:
+    st.markdown('<div class="vertical-divider"></div>', unsafe_allow_html=True)
 
 with cp2:
     st.markdown("##### Cenário Reduzido")
     col_c, col_d = st.columns([1, 1.5])
     val_imin = f"{pre_res['i_min']:.3f}" if pre_res else "-"
-    with col_c: card("Corrente (Imin)", val_imin, "kA")
-    with col_d: time_min_ms = st.number_input("Tempo de Atuação (ms)", min_value=0.0, value=None, step=0.1, format="%.1f", key="t_min")
+    with col_c: card("Corrente de Arco Red.", val_imin, "kA")
+    with col_d: time_min_ms = st.number_input("Tempo de Atuação Cenário Reduzido (ms)", min_value=0.0, value=None, step=0.1, format="%.1f", key="t_min")
 
 st.markdown("<br>", unsafe_allow_html=True)
 calc_btn = st.button("CALCULAR ENERGIA FINAL", type="primary", use_container_width=True)
@@ -261,17 +265,19 @@ if calc_btn:
         
         ri1, r_sep, ri2 = st.columns([1, 0.1, 1])
         with ri1:
-            st.caption("CENÁRIO NOMINAL")
+            st.markdown("##### Cenário Nominal")
             c_nom1, c_nom2 = st.columns(2)
-            with c_nom1: card("Energia", f"{final_res['e_nominal']:.2f}", "cal/cm²")
-            with c_nom2: card("AFB", f"{final_res['afb_nominal']:.0f}", "mm")
+            with c_nom1: card("Energia Incidente", f"{final_res['e_nominal']:.2f}", "cal/cm²")
+            with c_nom2: card("Fronteira de Arco (AFB)", f"{final_res['afb_nominal']:.0f}", "mm")
+        
         with r_sep:
             st.markdown('<div class="vertical-divider"></div>', unsafe_allow_html=True)
+            
         with ri2:
-            st.caption("CENÁRIO REDUZIDO")
+            st.markdown("##### Cenário Reduzido")
             c_red1, c_red2 = st.columns(2)
-            with c_red1: card("Energia", f"{final_res['e_min']:.2f}", "cal/cm²")
-            with c_red2: card("AFB", f"{final_res['afb_min']:.0f}", "mm")
+            with c_red1: card("Energia Incidente", f"{final_res['e_min']:.2f}", "cal/cm²")
+            with c_red2: card("Fronteira de Arco (AFB)", f"{final_res['afb_min']:.0f}", "mm")
 
         # --- SEÇÃO 4: FINAL ---
         st.markdown("<br>", unsafe_allow_html=True)
@@ -300,7 +306,7 @@ if calc_btn:
             </div>
             """, unsafe_allow_html=True)
 
-        # Rodapé Discreto (Texto Neutro)
+        # Rodapé Discreto (Texto Neutro - Sem Cor)
         st.markdown(f"""
         <div class="summary-footer">
             <div class="summary-item">
