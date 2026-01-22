@@ -24,7 +24,6 @@ CONSTANTS_AB = {'VCB':  {'A': 4,  'B': 20}, 'VCBB': {'A': 10, 'B': 24}, 'HCB':  
 def log10(x): return math.log10(x) if x > 0 else 0
 
 def fmt_br(v, c=2): 
-    # Formata número para padrão PT-BR (vírgula decimal)
     return f"{v:.{c}f}".replace('.', ',')
 
 def formatar_cep(v): 
@@ -36,7 +35,6 @@ def formatar_cnpj(v):
     return f"{s[:2]}.{s[2:5]}.{s[5:8]}/{s[8:12]}-{s[12:]}" if len(s)==14 else v
 
 def formatar_coeficientes_rt(dic):
-    # Gera RichText para o Word (subscritos)
     if not dic: return ""
     rt = RichText()
     items = list(dic.items())
@@ -129,7 +127,7 @@ def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_m
     }
 
 # ==============================================================================
-# 3. FRONTEND: STREAMLIT APP (V27.0 - RELATÓRIO + ADESIVO)
+# 3. FRONTEND: STREAMLIT APP (V28.0 - ANTI-CRASH)
 # ==============================================================================
 st.set_page_config(page_title="Calc. Energia Incidente", layout="wide")
 
@@ -139,7 +137,6 @@ if 'inputs' not in st.session_state: st.session_state.inputs = {}
 if 't_nom' not in st.session_state: st.session_state.t_nom = 0.0
 if 't_min' not in st.session_state: st.session_state.t_min = 0.0
 
-# Callbacks
 def on_system_change():
     st.session_state.results = None
     st.session_state.t_nom = 0.0
@@ -238,183 +235,171 @@ if st.button("CALCULAR ENERGIA FINAL", type="primary", use_container_width=True)
 
 if st.session_state.results:
     res = st.session_state.results
-    st.markdown("---")
-    st.subheader("3. Resultados Intermediários")
-    ri1, r_sep, ri2 = st.columns([1, 0.1, 1])
-    with ri1:
-        st.markdown("##### Cenário Nominal")
-        c_nom1, c_nom2 = st.columns(2)
-        with c_nom1: card("Energia Incidente", f"{res['e_nominal']:.2f}", "cal/cm²")
-        with c_nom2: card("Fronteira de Arco (AFB)", f"{res['afb_nominal']:.0f}", "mm")
-    with r_sep: st.markdown('<div class="vertical-divider"></div>', unsafe_allow_html=True)
-    with ri2:
-        st.markdown("##### Cenário Reduzido")
-        c_red1, c_red2 = st.columns(2)
-        with c_red1: card("Energia Incidente", f"{res['e_min']:.2f}", "cal/cm²")
-        with c_red2: card("Fronteira de Arco (AFB)", f"{res['afb_min']:.0f}", "mm")
-
-    st.markdown("---")
-    st.subheader(f"4. Resultados Finais")
-    cat_name, color_hex, cat_rate = obter_categoria_nfpa(res['e_final'])
-    cf1, cf2, cf3 = st.columns(3)
-    def final_card(label, value, unit, color):
-        st.markdown(f"""<div class="final-card" style="border-color: {color};"><div class="final-label">{label}</div><div class="final-value" style="color: {color};">{value} <span class="final-unit">{unit}</span></div></div>""", unsafe_allow_html=True)
-
-    with cf1: final_card("Energia Incidente", f"{res['e_final']:.2f}", "cal/cm²", color_hex)
-    with cf2: final_card("Fronteira de Arco (AFB)", f"{res['afb_final']:.0f}", "mm", color_hex)
-    with cf3: 
-        st.markdown(f"""<div class="final-card" style="border-color: {color_hex};"><div class="final-label">Categoria de Risco</div><div style="background-color: {color_hex}; color: white; padding: 5px 15px; border-radius: 20px; font-weight: 700; font-size: 22px; white-space: nowrap;">{cat_name}</div></div>""", unsafe_allow_html=True)
-
-    st.markdown(f"""<div class="summary-footer"><div class="summary-item"><span class="summary-label">Cenário Definidor:</span><span class="summary-val-bold">{res['pior_caso'].upper()}</span></div><div style="width: 1px; height: 15px; background: #d1d5db;"></div><div class="summary-item"><span class="summary-label">EPI Recomendado:</span><span class="summary-val-bold">{cat_rate}</span></div></div>""", unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("---")
-    st.subheader("5. Exportação")
-
-    # --- FUNÇÃO GERAR EXCEL (ADESIVO) ---
-    def preencher_modelo_excel(nome_tag_atual):
-        try:
-            wb = load_workbook("ADESIVO ENERGIA INCIDENTE - MODELO.xlsx")
-            ws = wb.active
-        except Exception as e:
-            st.error(f"Erro ao carregar modelo Excel: {e}")
-            return None
-
-        def write_cell(ws, r, c, val):
-            cell = ws.cell(row=r, column=c)
-            if isinstance(cell, MergedCell):
-                for range_ in ws.merged_cells.ranges:
-                    if cell.coordinate in range_:
-                        top_left = ws.cell(row=range_.min_row, column=range_.min_col)
-                        top_left.value = val
-                        return
-            else:
-                cell.value = val
-
-        def fill_label(ws, text_to_find, val_to_write, col_offset):
-            for r in ws.iter_rows(min_row=1, max_row=20, min_col=1, max_col=12):
-                for cell in r:
-                    if cell.value and isinstance(cell.value, str):
-                        if text_to_find.lower() in str(cell.value).lower():
-                            write_cell(ws, cell.row, cell.column + col_offset, val_to_write)
-                            return
-
-        inp = st.session_state.inputs
-        v_val = inp['voltage']
-        
-        if v_val < 50: zr, zc, classe = 0, 0, "-"
-        elif v_val <= 500: zr, zc, classe = 200, 700, "00 (≤ 500 V)"
-        elif v_val <= 1000: zr, zc, classe = 200, 700, "0 (≤ 1000 V)"
-        else: zr, zc, classe = 700, 1500, "Consultar (> 1kV)"
-
-        fill_label(ws, "Energia incidente", f"{res['e_final']:.2f} cal/cm²", 2)
-        fill_label(ws, "Limite do arco", f"{res['afb_final']:.0f} mm", 2)
-        fill_label(ws, "Distância de trabalho", f"{inp['dist_mm']} mm", 2)
-        
-        cat_clean = cat_name.replace('&lt;', '<')
-        fill_label(ws, "Categoria de risco", cat_clean, 2)
-        fill_label(ws, "Suportabilidade mínima", cat_rate.replace('Min. ', ''), 2)
-        
-        fill_label(ws, "Classe:", classe, 1)
-        fill_label(ws, "Tensão:", f"{v_val} V", 1)
-        fill_label(ws, "Zona controlada:", f"{zc} mm", 1)
-        fill_label(ws, "Zona de risco:", f"{zr} mm", 1)
-        
-        equip_text = f"Equipamento: {nome_tag_atual or 'N/A'}"
-        fill_label(ws, "Equipamento:", equip_text, 0)
-
-        try: write_cell(ws, 13, 9, datetime.now().strftime('%b/%Y').upper())
-        except: pass
-
-        output = io.BytesIO()
-        wb.save(output)
-        return output.getvalue()
-
-    # --- FUNÇÃO GERAR WORD (RELATÓRIO) ---
-    def gerar_relatorio_word(tag_atual, cli, end, cep, cnpj):
-        try:
-            doc = DocxTemplate("ESTUDO DE ENERGIA INCIDENTE - MODELO.docx")
-        except Exception as e:
-            st.error(f"Erro ao carregar modelo DOCX: {e}")
-            return None
-        
-        # Mapeamento do Contexto
-        mes_map = {1:'Janeiro', 2:'Fevereiro', 3:'Março', 4:'Abril', 5:'Maio', 6:'Junho', 7:'Julho', 8:'Agosto', 9:'Setembro', 10:'Outubro', 11:'Novembro', 12:'Dezembro'}
-        
-        inp = st.session_state.inputs
-        
-        context = {
-            'mês_hoje': mes_map[datetime.now().month],
-            'data_hoje': datetime.now().strftime("%d/%m/%Y"),
-            'nome_equipamento': tag_atual or "N/A",
-            'nome_cliente': cli or "CLIENTE PADRÃO",
-            'endereço_cliente': end or "N/A",
-            'cep_cliente': formatar_cep(cep),
-            'cnpj_cliente': formatar_cnpj(cnpj),
-            'config': config_electrode,
-            'voc': fmt_br(inp['voltage'], 0),
-            'ibf': fmt_br(ibf_ka),
-            'gap': fmt_br(gap_mm, 1),
-            'dist': fmt_br(inp['dist_mm'], 0),
-            'dimensoes': f"{h_mm:.0f}x{w_mm:.0f}x{d_mm:.0f} mm" if not is_open else "Ar Livre",
-            'tipo_involucro': res['box_type'],
-            'ia_600': fmt_br(res['ia_600'], 3),
-            'i_arc': fmt_br(res['i_arc'], 3),
-            'tempo': fmt_br(st.session_state.t_nom, 1),
-            'ees': fmt_br(res['ees']),
-            'cf': fmt_br(res['cf'], 3),
-            'e_nominal': fmt_br(res['e_nominal']),
-            'afb_nominal': fmt_br(res['afb_nominal'], 0),
-            'var_cf': fmt_br(res['var_cf'], 3),
-            'i_min': fmt_br(res['i_min'], 3),
-            'tempo_min': fmt_br(st.session_state.t_min, 1),
-            'e_min': fmt_br(res['e_min']),
-            'afb_min': fmt_br(res['afb_min'], 0),
-            'e_final': fmt_br(res['e_final']),
-            'afb_final': fmt_br(res['afb_final'], 0),
-            'categoria_risco': cat_name.replace('&lt;', '<'),
-            'atpv': cat_rate,
-            # RichText para Coeficientes
-            'coeficientes_step2': formatar_coeficientes_rt(res.get('dict_step2')),
-            'txt_coeficientes_step5': formatar_coeficientes_rt(res.get('dict_step5')),
-            'coeficientes_step5': formatar_coeficientes_rt(res.get('dict_step5')),
-            'coeficientes_step6': formatar_coeficientes_rt(res.get('dict_step6')),
-            'coeficientes_step8': formatar_coeficientes_rt(res.get('dict_step8')),
-            'k_dist': " "
-        }
-        
-        doc.render(context)
-        bio = io.BytesIO()
-        doc.save(bio)
-        return bio.getvalue()
-
-    # Botões de Download
-    col_d1, col_d2 = st.columns(2)
     
-    # 1. Adesivo Excel
-    excel_data = preencher_modelo_excel(equip_name)
-    if excel_data:
-        f_name_xls = f"Adesivo_{equip_name}.xlsx" if equip_name else "Adesivo_ArcFlash.xlsx"
-        with col_d1:
-            st.download_button(
-                label="📥 Baixar Adesivo (.xlsx)",
-                data=excel_data,
-                file_name=f_name_xls,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary",
-                use_container_width=True
-            )
+    # PROTEÇÃO DE VERSÃO DE DADOS (EVITA O KEYERROR)
+    if 'box_type' not in res:
+        st.warning("⚠️ A estrutura de dados foi atualizada para gerar o relatório. Por favor, clique em **CALCULAR ENERGIA FINAL** novamente.")
+    else:
+        # Se os dados estão corretos, renderiza os resultados
+        st.markdown("---")
+        st.subheader("3. Resultados Intermediários")
+        ri1, r_sep, ri2 = st.columns([1, 0.1, 1])
+        with ri1:
+            st.markdown("##### Cenário Nominal")
+            c_nom1, c_nom2 = st.columns(2)
+            with c_nom1: card("Energia Incidente", f"{res['e_nominal']:.2f}", "cal/cm²")
+            with c_nom2: card("Fronteira de Arco (AFB)", f"{res['afb_nominal']:.0f}", "mm")
+        with r_sep: st.markdown('<div class="vertical-divider"></div>', unsafe_allow_html=True)
+        with ri2:
+            st.markdown("##### Cenário Reduzido")
+            c_red1, c_red2 = st.columns(2)
+            with c_red1: card("Energia Incidente", f"{res['e_min']:.2f}", "cal/cm²")
+            with c_red2: card("Fronteira de Arco (AFB)", f"{res['afb_min']:.0f}", "mm")
 
-    # 2. Relatório DOCX
-    docx_data = gerar_relatorio_word(equip_name, cli_name, cli_end, cli_cep, cli_cnpj)
-    if docx_data:
-        f_name_doc = f"Relatorio_{equip_name}.docx" if equip_name else "Relatorio_ArcFlash.docx"
-        with col_d2:
-            st.download_button(
-                label="📄 Baixar Relatório (.docx)",
-                data=docx_data,
-                file_name=f_name_doc,
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                type="secondary",
-                use_container_width=True
-            )
+        st.markdown("---")
+        st.subheader(f"4. Resultados Finais")
+        cat_name, color_hex, cat_rate = obter_categoria_nfpa(res['e_final'])
+        cf1, cf2, cf3 = st.columns(3)
+        def final_card(label, value, unit, color):
+            st.markdown(f"""<div class="final-card" style="border-color: {color};"><div class="final-label">{label}</div><div class="final-value" style="color: {color};">{value} <span class="final-unit">{unit}</span></div></div>""", unsafe_allow_html=True)
+
+        with cf1: final_card("Energia Incidente", f"{res['e_final']:.2f}", "cal/cm²", color_hex)
+        with cf2: final_card("Fronteira de Arco (AFB)", f"{res['afb_final']:.0f}", "mm", color_hex)
+        with cf3: 
+            st.markdown(f"""<div class="final-card" style="border-color: {color_hex};"><div class="final-label">Categoria de Risco</div><div style="background-color: {color_hex}; color: white; padding: 5px 15px; border-radius: 20px; font-weight: 700; font-size: 22px; white-space: nowrap;">{cat_name}</div></div>""", unsafe_allow_html=True)
+
+        st.markdown(f"""<div class="summary-footer"><div class="summary-item"><span class="summary-label">Cenário Definidor:</span><span class="summary-val-bold">{res['pior_caso'].upper()}</span></div><div style="width: 1px; height: 15px; background: #d1d5db;"></div><div class="summary-item"><span class="summary-label">EPI Recomendado:</span><span class="summary-val-bold">{cat_rate}</span></div></div>""", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("---")
+        st.subheader("5. Exportação")
+
+        # --- FUNÇÃO GERAR EXCEL (ADESIVO) ---
+        def preencher_modelo_excel(nome_tag_atual):
+            try:
+                wb = load_workbook("ADESIVO ENERGIA INCIDENTE - MODELO.xlsx")
+                ws = wb.active
+            except Exception as e:
+                st.error(f"Erro ao carregar modelo Excel: {e}")
+                return None
+
+            def write_cell(ws, r, c, val):
+                cell = ws.cell(row=r, column=c)
+                if isinstance(cell, MergedCell):
+                    for range_ in ws.merged_cells.ranges:
+                        if cell.coordinate in range_:
+                            top_left = ws.cell(row=range_.min_row, column=range_.min_col)
+                            top_left.value = val
+                            return
+                else:
+                    cell.value = val
+
+            def fill_label(ws, text_to_find, val_to_write, col_offset):
+                for r in ws.iter_rows(min_row=1, max_row=20, min_col=1, max_col=12):
+                    for cell in r:
+                        if cell.value and isinstance(cell.value, str):
+                            if text_to_find.lower() in str(cell.value).lower():
+                                write_cell(ws, cell.row, cell.column + col_offset, val_to_write)
+                                return
+
+            inp = st.session_state.inputs
+            v_val = inp['voltage']
+            
+            if v_val < 50: zr, zc, classe = 0, 0, "-"
+            elif v_val <= 500: zr, zc, classe = 200, 700, "00 (≤ 500 V)"
+            elif v_val <= 1000: zr, zc, classe = 200, 700, "0 (≤ 1000 V)"
+            else: zr, zc, classe = 700, 1500, "Consultar (> 1kV)"
+
+            fill_label(ws, "Energia incidente", f"{res['e_final']:.2f} cal/cm²", 2)
+            fill_label(ws, "Limite do arco", f"{res['afb_final']:.0f} mm", 2)
+            fill_label(ws, "Distância de trabalho", f"{inp['dist_mm']} mm", 2)
+            
+            cat_clean = cat_name.replace('&lt;', '<')
+            fill_label(ws, "Categoria de risco", cat_clean, 2)
+            fill_label(ws, "Suportabilidade mínima", cat_rate.replace('Min. ', ''), 2)
+            
+            fill_label(ws, "Classe:", classe, 1)
+            fill_label(ws, "Tensão:", f"{v_val} V", 1)
+            fill_label(ws, "Zona controlada:", f"{zc} mm", 1)
+            fill_label(ws, "Zona de risco:", f"{zr} mm", 1)
+            
+            equip_text = f"Equipamento: {nome_tag_atual or 'N/A'}"
+            fill_label(ws, "Equipamento:", equip_text, 0)
+
+            try: write_cell(ws, 13, 9, datetime.now().strftime('%b/%Y').upper())
+            except: pass
+
+            output = io.BytesIO()
+            wb.save(output)
+            return output.getvalue()
+
+        # --- FUNÇÃO GERAR WORD (RELATÓRIO) ---
+        def gerar_relatorio_word(tag_atual, cli, end, cep, cnpj):
+            try:
+                doc = DocxTemplate("ESTUDO DE ENERGIA INCIDENTE - MODELO.docx")
+            except Exception as e:
+                st.error(f"Erro ao carregar modelo DOCX: {e}")
+                return None
+            
+            mes_map = {1:'Janeiro', 2:'Fevereiro', 3:'Março', 4:'Abril', 5:'Maio', 6:'Junho', 7:'Julho', 8:'Agosto', 9:'Setembro', 10:'Outubro', 11:'Novembro', 12:'Dezembro'}
+            inp = st.session_state.inputs
+            
+            context = {
+                'mês_hoje': mes_map[datetime.now().month],
+                'data_hoje': datetime.now().strftime("%d/%m/%Y"),
+                'nome_equipamento': tag_atual or "N/A",
+                'nome_cliente': cli or "CLIENTE PADRÃO",
+                'endereço_cliente': end or "N/A",
+                'cep_cliente': formatar_cep(cep),
+                'cnpj_cliente': formatar_cnpj(cnpj),
+                'config': config_electrode,
+                'voc': fmt_br(inp['voltage'], 0),
+                'ibf': fmt_br(ibf_ka),
+                'gap': fmt_br(gap_mm, 1),
+                'dist': fmt_br(inp['dist_mm'], 0),
+                'dimensoes': f"{h_mm:.0f}x{w_mm:.0f}x{d_mm:.0f} mm" if not is_open else "Ar Livre",
+                'tipo_involucro': res['box_type'],
+                'ia_600': fmt_br(res['ia_600'], 3),
+                'i_arc': fmt_br(res['i_arc'], 3),
+                'tempo': fmt_br(st.session_state.t_nom, 1),
+                'ees': fmt_br(res['ees']),
+                'cf': fmt_br(res['cf'], 3),
+                'e_nominal': fmt_br(res['e_nominal']),
+                'afb_nominal': fmt_br(res['afb_nominal'], 0),
+                'var_cf': fmt_br(res['var_cf'], 3),
+                'i_min': fmt_br(res['i_min'], 3),
+                'tempo_min': fmt_br(st.session_state.t_min, 1),
+                'e_min': fmt_br(res['e_min']),
+                'afb_min': fmt_br(res['afb_min'], 0),
+                'e_final': fmt_br(res['e_final']),
+                'afb_final': fmt_br(res['afb_final'], 0),
+                'categoria_risco': cat_name.replace('&lt;', '<'),
+                'atpv': cat_rate,
+                'coeficientes_step2': formatar_coeficientes_rt(res.get('dict_step2')),
+                'txt_coeficientes_step5': formatar_coeficientes_rt(res.get('dict_step5')),
+                'coeficientes_step5': formatar_coeficientes_rt(res.get('dict_step5')),
+                'coeficientes_step6': formatar_coeficientes_rt(res.get('dict_step6')),
+                'coeficientes_step8': formatar_coeficientes_rt(res.get('dict_step8')),
+                'k_dist': " "
+            }
+            
+            doc.render(context)
+            bio = io.BytesIO()
+            doc.save(bio)
+            return bio.getvalue()
+
+        col_d1, col_d2 = st.columns(2)
+        
+        # 1. Adesivo
+        excel_data = preencher_modelo_excel(equip_name)
+        if excel_data:
+            f_name_xls = f"Adesivo_{equip_name}.xlsx" if equip_name else "Adesivo_ArcFlash.xlsx"
+            with col_d1:
+                st.download_button("📥 Baixar Adesivo (.xlsx)", excel_data, f_name_xls, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
+
+        # 2. Relatório
+        docx_data = gerar_relatorio_word(equip_name, cli_name, cli_end, cli_cep, cli_cnpj)
+        if docx_data:
+            f_name_doc = f"Relatorio_{equip_name}.docx" if equip_name else "Relatorio_ArcFlash.docx"
+            with col_d2:
+                st.download_button("📄 Baixar Relatório (.docx)", docx_data, f_name_doc, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", type="secondary", use_container_width=True)
