@@ -5,10 +5,11 @@ import numpy as np
 import io
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
+from docxtpl import DocxTemplate, RichText
 from datetime import datetime
 
 # ==============================================================================
-# 1. BACKEND: LÓGICA DE CÁLCULO IEEE 1584-2018 (INTACTO)
+# 1. BACKEND: LÓGICA DE CÁLCULO IEEE 1584-2018
 # ==============================================================================
 TABLE_1 = {'VCB': [-0.04287, 1.035, -0.083, 0, 0, -4.783e-9, 1.962e-6, -0.000229, 0.003141, 1.092], 'VCBB': [-0.017432, 0.98, -0.05, 0, 0, -5.767e-9, 2.524e-6, -0.00034, 0.01187, 1.013], 'HCB': [0.054922, 0.988, -0.11, 0, 0, -5.382e-9, 2.316e-6, -0.000302, 0.0091, 0.9725], 'VOA': [0.043785, 1.04, -0.18, 0, 0, -4.783e-9, 1.962e-6, -0.000229, 0.003141, 1.092], 'HOA': [0.111147, 1.008, -0.24, 0, 0, -3.895e-9, 1.641e-6, -0.000197, 0.002615, 1.1]}
 TABLE_2 = {'VCB': [0, -1.4269e-6, 8.3137e-5, -0.0019382, 0.022366, -0.12645, 0.30226], 'VCBB': [1.138e-6, -6.0287e-5, 0.0012758, -0.013778, 0.080217, -0.24066, 0.33524], 'HCB': [0, -3.097e-6, 0.00016405, -0.0033609, 0.033308, -0.16182, 0.34627], 'VOA': [9.5606e-7, -5.1543e-5, 0.0011161, -0.01242, 0.075125, -0.23584, 0.33696], 'HOA': [0, -3.1555e-6, 0.0001682, -0.0034607, 0.034124, -0.1599, 0.34629]}
@@ -18,9 +19,36 @@ TABLE_7_SHALLOW = {'VCB': [0.002222, -0.02556, 0.6222], 'VCBB': [-0.002778, 0.11
 CONSTANTS_AB = {'VCB':  {'A': 4,  'B': 20}, 'VCBB': {'A': 10, 'B': 24}, 'HCB':  {'A': 10, 'B': 22}}
 
 # ==============================================================================
-# 2. FUNÇÕES MATEMÁTICAS
+# 2. FUNÇÕES MATEMÁTICAS & AUXILIARES
 # ==============================================================================
 def log10(x): return math.log10(x) if x > 0 else 0
+
+def fmt_br(v, c=2): 
+    # Formata número para padrão PT-BR (vírgula decimal)
+    return f"{v:.{c}f}".replace('.', ',')
+
+def formatar_cep(v): 
+    s = "".join(filter(str.isdigit, str(v)))
+    return f"{s[:2]}.{s[2:5]}-{s[5:]}" if len(s)==8 else v
+
+def formatar_cnpj(v): 
+    s = "".join(filter(str.isdigit, str(v)))
+    return f"{s[:2]}.{s[2:5]}.{s[5:8]}/{s[8:12]}-{s[12:]}" if len(s)==14 else v
+
+def formatar_coeficientes_rt(dic):
+    # Gera RichText para o Word (subscritos)
+    if not dic: return ""
+    rt = RichText()
+    items = list(dic.items())
+    for i, (k, v) in enumerate(items):
+        l = "".join([c for c in k if not c.isdigit()])
+        n = "".join([c for c in k if c.isdigit()])
+        rt.add(l, font='Times New Roman', size=24, italic=True)
+        rt.add(n, font='Times New Roman', size=24, italic=True, subscript=True)
+        val = f"{v:.4f}".replace('.', ',') if abs(v) >= 0.0001 or v == 0 else f"{v:.2e}".replace('.', ',')
+        rt.add(f" = {val}", font='Times New Roman', size=24, italic=True)
+        if i < len(items)-1: rt.add("; ", font='Times New Roman', size=24, italic=True)
+    return rt
 
 def obter_categoria_nfpa(e):
     if e <= 1.2: return "Isento (&lt; 1.2)", "#28a745", "N/A (< 1.2 cal/cm²)" 
@@ -57,11 +85,14 @@ def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_m
     Iarc = 1 / math.sqrt(term_a * term_b)
     
     is_open = Config in ['VOA', 'HOA']
-    if is_open: CF, box_type, EES, H1, W1 = 1.0, "Open Air (Ar Livre)", 0.0, 0.0, 0.0
+    if is_open: 
+        CF, box_type, EES, H1, W1 = 1.0, "Open Air (Ar Livre)", 0.0, 0.0, 0.0
+        b_coeffs = []
     else:
         EES, box_type, H1, W1 = calcular_ees_correto(Config, H_mm, W_mm, D_mm, Voc)
         b = TABLE_7_SHALLOW[Config] if "Shallow" in box_type else TABLE_7_TYPICAL[Config]
         CF = 1/(b[0]*EES**2 + b[1]*EES + b[2]) if "Shallow" in box_type else b[0]*EES**2 + b[1]*EES + b[2]
+        b_coeffs = b
 
     vk = TABLE_2[Config]
     VarCf = vk[0]*Voc**6 + vk[1]*Voc**5 + vk[2]*Voc**4 + vk[3]*Voc**3 + vk[4]*Voc**2 + vk[5]*Voc + vk[6]
@@ -84,15 +115,21 @@ def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_m
     E_final = max(E_cal, E_min_cal)
     AFB_final = max(AFB, AFB_min)
     
+    # Retorna Dicionário Completo para o Relatório
     return {
         "ia_600": Iarc600, "i_arc": Iarc, "i_min": Imin, "var_cf": VarCf,
         "e_nominal": E_cal, "afb_nominal": AFB, "e_min": E_min_cal, "afb_min": AFB_min,
         "e_final": E_final, "afb_final": AFB_final,
-        "pior_caso": "Nominal" if E_final == E_cal else "Reduzida"
+        "pior_caso": "Nominal" if E_final == E_cal else "Reduzida",
+        "box_type": box_type, "ees": EES, "cf": CF, "h1": H1, "w1": W1,
+        "dict_step2": {f'k{i+1}':v for i,v in enumerate(k)},
+        "dict_step5": {f'b{i+1}':v for i,v in enumerate(b_coeffs)} if not is_open else {},
+        "dict_step6": {f'k{i+1}':v for i,v in enumerate(tk)},
+        "dict_step8": {f'k{i+1}':v for i,v in enumerate(vk)}
     }
 
 # ==============================================================================
-# 3. FRONTEND: STREAMLIT APP (V26.0 FINAL + FIX EXCEL ESCAPE)
+# 3. FRONTEND: STREAMLIT APP (V27.0 - RELATÓRIO + ADESIVO)
 # ==============================================================================
 st.set_page_config(page_title="Calc. Energia Incidente", layout="wide")
 
@@ -102,13 +139,12 @@ if 'inputs' not in st.session_state: st.session_state.inputs = {}
 if 't_nom' not in st.session_state: st.session_state.t_nom = 0.0
 if 't_min' not in st.session_state: st.session_state.t_min = 0.0
 
-# Callback 1: Mudança no Sistema (Limpa Result + Zera Tempos)
+# Callbacks
 def on_system_change():
     st.session_state.results = None
     st.session_state.t_nom = 0.0
     st.session_state.t_min = 0.0
 
-# Callback 2: Mudança no Tempo (Limpa apenas Result)
 def on_time_change():
     st.session_state.results = None
 
@@ -131,9 +167,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- SIDEBAR (Cliente + Equipamento) ---
 with st.sidebar:
+    st.header("Dados do Cliente")
+    cli_name = st.text_input("Nome do Cliente", value="")
+    cli_end = st.text_input("Endereço", value="")
+    col_s1, col_s2 = st.columns(2)
+    with col_s1: cli_cep = st.text_input("CEP", value="")
+    with col_s2: cli_cnpj = st.text_input("CNPJ", value="")
+    
+    st.divider()
     st.header("Identificação")
-    # Equipamento: Não possui callback (não reseta cálculo), mas a variável 'equip_name' é capturada em tempo real
     equip_name = st.text_input("TAG do Equipamento", value="", key="equip_tag")
     st.caption("Desenvolvido em Python | IEEE 1584-2018")
 
@@ -185,7 +229,6 @@ st.markdown("<br>", unsafe_allow_html=True)
 if st.button("CALCULAR ENERGIA FINAL", type="primary", use_container_width=True):
     if not pre_res:
         st.warning("⚠️ Preencha os dados do sistema primeiro.")
-    # VALIDAÇÃO RIGOROSA: Ambos os tempos devem ser > 0
     elif st.session_state.t_nom <= 0 or st.session_state.t_min <= 0:
         st.warning("⚠️ Erro: Ambos os tempos de atuação (Nominal E Reduzido) devem ser maiores que zero.")
     else:
@@ -228,13 +271,13 @@ if st.session_state.results:
     st.markdown("---")
     st.subheader("5. Exportação")
 
-    # Passamos o 'nome_tag_atual' diretamente como argumento para garantir atualização
+    # --- FUNÇÃO GERAR EXCEL (ADESIVO) ---
     def preencher_modelo_excel(nome_tag_atual):
         try:
             wb = load_workbook("ADESIVO ENERGIA INCIDENTE - MODELO.xlsx")
             ws = wb.active
         except Exception as e:
-            st.error(f"Erro ao carregar o modelo: {e}. Verifique se o arquivo está no GitHub.")
+            st.error(f"Erro ao carregar modelo Excel: {e}")
             return None
 
         def write_cell(ws, r, c, val):
@@ -268,9 +311,8 @@ if st.session_state.results:
         fill_label(ws, "Limite do arco", f"{res['afb_final']:.0f} mm", 2)
         fill_label(ws, "Distância de trabalho", f"{inp['dist_mm']} mm", 2)
         
-        # CORREÇÃO HTML -> EXCEL: Trocando &lt; por <
-        cat_name_clean = cat_name.replace('&lt;', '<')
-        fill_label(ws, "Categoria de risco", cat_name_clean, 2)
+        cat_clean = cat_name.replace('&lt;', '<')
+        fill_label(ws, "Categoria de risco", cat_clean, 2)
         fill_label(ws, "Suportabilidade mínima", cat_rate.replace('Min. ', ''), 2)
         
         fill_label(ws, "Classe:", classe, 1)
@@ -278,7 +320,6 @@ if st.session_state.results:
         fill_label(ws, "Zona controlada:", f"{zc} mm", 1)
         fill_label(ws, "Zona de risco:", f"{zr} mm", 1)
         
-        # USA O ARGUMENTO DA FUNÇÃO (tempo real) em vez de estado salvo
         equip_text = f"Equipamento: {nome_tag_atual or 'N/A'}"
         fill_label(ws, "Equipamento:", equip_text, 0)
 
@@ -289,17 +330,91 @@ if st.session_state.results:
         wb.save(output)
         return output.getvalue()
 
-    # Passa o valor do input atual (equip_name) diretamente para a função
-    excel_data = preencher_modelo_excel(equip_name)
-    
-    if excel_data:
-        f_name = f"Adesivo_{equip_name}.xlsx" if equip_name else "Adesivo_ArcFlash.xlsx"
+    # --- FUNÇÃO GERAR WORD (RELATÓRIO) ---
+    def gerar_relatorio_word(tag_atual, cli, end, cep, cnpj):
+        try:
+            doc = DocxTemplate("ESTUDO DE ENERGIA INCIDENTE - MODELO.docx")
+        except Exception as e:
+            st.error(f"Erro ao carregar modelo DOCX: {e}")
+            return None
         
-        st.download_button(
-            label="📥 Baixar Adesivo (Modelo Preenchido)",
-            data=excel_data,
-            file_name=f_name,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
-            use_container_width=True
-        )
+        # Mapeamento do Contexto
+        mes_map = {1:'Janeiro', 2:'Fevereiro', 3:'Março', 4:'Abril', 5:'Maio', 6:'Junho', 7:'Julho', 8:'Agosto', 9:'Setembro', 10:'Outubro', 11:'Novembro', 12:'Dezembro'}
+        
+        inp = st.session_state.inputs
+        
+        context = {
+            'mês_hoje': mes_map[datetime.now().month],
+            'data_hoje': datetime.now().strftime("%d/%m/%Y"),
+            'nome_equipamento': tag_atual or "N/A",
+            'nome_cliente': cli or "CLIENTE PADRÃO",
+            'endereço_cliente': end or "N/A",
+            'cep_cliente': formatar_cep(cep),
+            'cnpj_cliente': formatar_cnpj(cnpj),
+            'config': config_electrode,
+            'voc': fmt_br(inp['voltage'], 0),
+            'ibf': fmt_br(ibf_ka),
+            'gap': fmt_br(gap_mm, 1),
+            'dist': fmt_br(inp['dist_mm'], 0),
+            'dimensoes': f"{h_mm:.0f}x{w_mm:.0f}x{d_mm:.0f} mm" if not is_open else "Ar Livre",
+            'tipo_involucro': res['box_type'],
+            'ia_600': fmt_br(res['ia_600'], 3),
+            'i_arc': fmt_br(res['i_arc'], 3),
+            'tempo': fmt_br(st.session_state.t_nom, 1),
+            'ees': fmt_br(res['ees']),
+            'cf': fmt_br(res['cf'], 3),
+            'e_nominal': fmt_br(res['e_nominal']),
+            'afb_nominal': fmt_br(res['afb_nominal'], 0),
+            'var_cf': fmt_br(res['var_cf'], 3),
+            'i_min': fmt_br(res['i_min'], 3),
+            'tempo_min': fmt_br(st.session_state.t_min, 1),
+            'e_min': fmt_br(res['e_min']),
+            'afb_min': fmt_br(res['afb_min'], 0),
+            'e_final': fmt_br(res['e_final']),
+            'afb_final': fmt_br(res['afb_final'], 0),
+            'categoria_risco': cat_name.replace('&lt;', '<'),
+            'atpv': cat_rate,
+            # RichText para Coeficientes
+            'coeficientes_step2': formatar_coeficientes_rt(res.get('dict_step2')),
+            'txt_coeficientes_step5': formatar_coeficientes_rt(res.get('dict_step5')),
+            'coeficientes_step5': formatar_coeficientes_rt(res.get('dict_step5')),
+            'coeficientes_step6': formatar_coeficientes_rt(res.get('dict_step6')),
+            'coeficientes_step8': formatar_coeficientes_rt(res.get('dict_step8')),
+            'k_dist': " "
+        }
+        
+        doc.render(context)
+        bio = io.BytesIO()
+        doc.save(bio)
+        return bio.getvalue()
+
+    # Botões de Download
+    col_d1, col_d2 = st.columns(2)
+    
+    # 1. Adesivo Excel
+    excel_data = preencher_modelo_excel(equip_name)
+    if excel_data:
+        f_name_xls = f"Adesivo_{equip_name}.xlsx" if equip_name else "Adesivo_ArcFlash.xlsx"
+        with col_d1:
+            st.download_button(
+                label="📥 Baixar Adesivo (.xlsx)",
+                data=excel_data,
+                file_name=f_name_xls,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True
+            )
+
+    # 2. Relatório DOCX
+    docx_data = gerar_relatorio_word(equip_name, cli_name, cli_end, cli_cep, cli_cnpj)
+    if docx_data:
+        f_name_doc = f"Relatorio_{equip_name}.docx" if equip_name else "Relatorio_ArcFlash.docx"
+        with col_d2:
+            st.download_button(
+                label="📄 Baixar Relatório (.docx)",
+                data=docx_data,
+                file_name=f_name_doc,
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="secondary",
+                use_container_width=True
+            )
