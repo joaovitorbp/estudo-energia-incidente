@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 
 # ==============================================================================
-# 1. BACKEND: TABELAS E CONSTANTES (IEEE 1584-2018) - INTACTAS
+# 1. BACKEND: TABELAS E CONSTANTES (IEEE 1584-2018)
 # ==============================================================================
 TABLE_1 = {'VCB': [-0.04287, 1.035, -0.083, 0, 0, -4.783e-9, 1.962e-6, -0.000229, 0.003141, 1.092], 'VCBB': [-0.017432, 0.98, -0.05, 0, 0, -5.767e-9, 2.524e-6, -0.00034, 0.01187, 1.013], 'HCB': [0.054922, 0.988, -0.11, 0, 0, -5.382e-9, 2.316e-6, -0.000302, 0.0091, 0.9725], 'VOA': [0.043785, 1.04, -0.18, 0, 0, -4.783e-9, 1.962e-6, -0.000229, 0.003141, 1.092], 'HOA': [0.111147, 1.008, -0.24, 0, 0, -3.895e-9, 1.641e-6, -0.000197, 0.002615, 1.1]}
 TABLE_2 = {'VCB': [0, -1.4269e-6, 8.3137e-5, -0.0019382, 0.022366, -0.12645, 0.30226], 'VCBB': [1.138e-6, -6.0287e-5, 0.0012758, -0.013778, 0.080217, -0.24066, 0.33524], 'HCB': [0, -3.097e-6, 0.00016405, -0.0033609, 0.033308, -0.16182, 0.34627], 'VOA': [9.5606e-7, -5.1543e-5, 0.0011161, -0.01242, 0.075125, -0.23584, 0.33696], 'HOA': [0, -3.1555e-6, 0.0001682, -0.0034607, 0.034124, -0.1599, 0.34629]}
@@ -14,19 +14,17 @@ TABLE_7_SHALLOW = {'VCB': [0.002222, -0.02556, 0.6222], 'VCBB': [-0.002778, 0.11
 CONSTANTS_AB = {'VCB':  {'A': 4,  'B': 20}, 'VCBB': {'A': 10, 'B': 24}, 'HCB':  {'A': 10, 'B': 22}}
 
 # ==============================================================================
-# 2. FUNÇÕES AUXILIARES (LÓGICA MATEMÁTICA PURA)
+# 2. FUNÇÕES MATEMÁTICAS
 # ==============================================================================
-def log10(x):
-    if x <= 0: return 0 
-    return math.log10(x)
+def log10(x): return math.log10(x) if x > 0 else 0
 
 def obter_categoria_nfpa(e):
-    if e <= 1.2: return "Isento (< 1.2)", "Não requer AR", "#28a745" # Verde
-    if e <= 4.0: return "Categoria 1", "4.0 cal/cm²", "#ffc107" # Amarelo
-    if e <= 8.0: return "Categoria 2", "8.0 cal/cm²", "#fd7e14" # Laranja
-    if e <= 25.0: return "Categoria 3", "25.0 cal/cm²", "#dc3545" # Vermelho
-    if e <= 40.0: return "Categoria 4", "40.0 cal/cm²", "#6f42c1" # Roxo
-    return "PERIGO EXTREMO", "> 40 cal/cm²", "#000000" # Preto
+    if e <= 1.2: return "Isento (< 1.2)", "#28a745"
+    if e <= 4.0: return "Categoria 1", "#ffc107"
+    if e <= 8.0: return "Categoria 2", "#fd7e14"
+    if e <= 25.0: return "Categoria 3", "#dc3545"
+    if e <= 40.0: return "Categoria 4", "#6f42c1"
+    return "PERIGO EXTREMO", "#000000"
 
 def calcular_ajuste_linear(d, v, c):
     if c not in CONSTANTS_AB: return d / 25.4
@@ -40,10 +38,10 @@ def calcular_ees_correto(C, H, W, D, V):
     H1 = (20.0 if H < 508 else H_in if H <= 1244.6 else 49.0) if C == 'VCB' else (20.0 if H < 508 else H_in if H <= 660.4 else calcular_ajuste_linear(H if H <= 1244.6 else 1244.6, V, C))
     return (H1 + W1)/2, "Typical (Típico)", H1, W1
 
-def core_calculo_ieee1584(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_mm):
+def calcular_tudo(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W_mm, D_mm):
     Voc = Voc_V / 1000.0
     
-    # --- CÁLCULO DAS CORRENTES (NOMINAL) ---
+    # 1. Correntes
     k = TABLE_1[Config]
     term1 = 10 ** (k[0] + k[1]*log10(Ibf) + k[2]*log10(Gap))
     term2 = (k[3]*Ibf**6 + k[4]*Ibf**5 + k[5]*Ibf**4 + k[6]*Ibf**3 + k[7]*Ibf**2 + k[8]*Ibf + k[9])
@@ -52,170 +50,193 @@ def core_calculo_ieee1584(Voc_V, Ibf, Config, Gap, Dist, T_ms, T_min_ms, H_mm, W
     term_a = (0.6/Voc)**2
     term_b = (1/Iarc600)**2 - ((0.6**2 - Voc**2)/(0.6**2 * Ibf**2))
     
-    if term_a * term_b <= 0: return None # Erro matemático
+    if term_a * term_b <= 0: return None
     
     Iarc = 1 / math.sqrt(term_a * term_b)
     
-    # --- CÁLCULO DE INVÓLUCRO E FATOR DE CORREÇÃO (CF) ---
+    # 2. Caixa / Fator Correção
     is_open = Config in ['VOA', 'HOA']
     if is_open: 
         CF, box_type, EES, H1, W1 = 1.0, "Open Air (Ar Livre)", 0.0, 0.0, 0.0
+        b_coeffs = []
     else:
         EES, box_type, H1, W1 = calcular_ees_correto(Config, H_mm, W_mm, D_mm, Voc)
         b = TABLE_7_SHALLOW[Config] if "Shallow" in box_type else TABLE_7_TYPICAL[Config]
         CF = 1/(b[0]*EES**2 + b[1]*EES + b[2]) if "Shallow" in box_type else b[0]*EES**2 + b[1]*EES + b[2]
+        b_coeffs = b
 
-    # --- CÁLCULO DA CORRENTE REDUZIDA (IMIN) ---
+    # 3. Corrente Reduzida
     vk = TABLE_2[Config]
     VarCf = vk[0]*Voc**6 + vk[1]*Voc**5 + vk[2]*Voc**4 + vk[3]*Voc**3 + vk[4]*Voc**2 + vk[5]*Voc + vk[6]
     Imin = Iarc * (1 - 0.5 * VarCf)
     
-    # --- CÁLCULO DE ENERGIA (FUNÇÃO INTERNA) ---
-    def calc_energia_individual(I_current, Time_ms):
-        tk = TABLE_3[Config]
+    # 4. Energias
+    tk = TABLE_3[Config]
+    
+    def get_energy(I_curr, Time):
         C2 = tk[3]*Ibf**7 + tk[4]*Ibf**6 + tk[5]*Ibf**5 + tk[6]*Ibf**4 + tk[7]*Ibf**3 + tk[8]*Ibf**2 + tk[9]*Ibf
         C3 = tk[10]*log10(Ibf) + tk[11]*log10(Dist) + log10(1/CF)
-        exponent = tk[0] + tk[1]*log10(Gap) + (tk[2]*Iarc600/C2) + C3 + tk[12]*log10(I_current)
-        E_cal = ((12.552/50)*Time_ms*(10**exponent))/4.184
-        AFB = Dist * (1.2/E_cal)**(1/tk[11])
-        return E_cal, AFB
+        exponent = tk[0] + tk[1]*log10(Gap) + (tk[2]*Iarc600/C2) + C3 + tk[12]*log10(I_curr)
+        E = ((12.552/50)*Time*(10**exponent))/4.184
+        AFB = Dist * (1.2/E)**(1/tk[11])
+        return E, AFB, exponent, C2, C3
 
-    # Cenário 1: Nominal
-    E_cal, AFB = calc_energia_individual(Iarc, T_ms)
+    E_cal, AFB, exp1, C2_final, C3_final = get_energy(Iarc, T_ms)
+    E_min_cal, AFB_min, exp2, _, _ = get_energy(Imin, T_min_ms)
     
-    # Cenário 2: Reduzida
-    E_min_cal, AFB_min = calc_energia_individual(Imin, T_min_ms)
-    
-    # Pior Caso
     E_final = max(E_cal, E_min_cal)
     AFB_final = max(AFB, AFB_min)
     
+    # Retorna Dicionário Completo para Memória de Cálculo
     return {
-        "ia_600": Iarc600, "i_arc": Iarc, "i_min": Imin,
-        "box_type": box_type, "ees": EES, "cf": CF, "var_cf": VarCf,
-        "h1": H1, "w1": W1,
-        "e_nominal": E_cal, "afb_nominal": AFB,
-        "e_min": E_min_cal, "afb_min": AFB_min,
+        "ia_600": Iarc600, "i_arc": Iarc, "i_min": Imin, "var_cf": VarCf,
+        "box_type": box_type, "ees": EES, "cf": CF, "h1": H1, "w1": W1,
+        "e_nominal": E_cal, "afb_nominal": AFB, "e_min": E_min_cal, "afb_min": AFB_min,
         "e_final": E_final, "afb_final": AFB_final,
-        "pior_caso": "Corrente Nominal" if E_final == E_cal else "Corrente Reduzida"
+        "pior_caso": "Nominal" if E_final == E_cal else "Reduzida",
+        # Coeficientes Brutos
+        "k": k, "tk": tk, "vk": vk, "b": b_coeffs,
+        "C2": C2_final, "C3": C3_final
     }
 
 # ==============================================================================
-# 3. FRONTEND: STREAMLIT APP
+# 3. FRONTEND: STREAMLIT APP (NOVO LAYOUT)
 # ==============================================================================
 st.set_page_config(page_title="Calc. Energia Incidente", layout="wide")
 
-# Estilos CSS para Inputs Numéricos limpos e Cards
+# Estilos Personalizados
 st.markdown("""
 <style>
-    .result-box { background-color: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e9ecef; }
+    .info-box { background-color: #e8f4f8; padding: 15px; border-radius: 8px; border: 1px solid #b8daff; text-align: center; }
+    .risk-box { color: white; padding: 20px; border-radius: 10px; text-align: center; font-weight: bold; font-size: 24px; }
     .stNumberInput input { text-align: center; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ Calculadora IEEE 1584-2018 (Arc Flash)")
+# --- SIDEBAR: APENAS IDENTIFICAÇÃO ---
+with st.sidebar:
+    st.header("📋 Identificação")
+    equip_name = st.text_input("TAG do Equipamento", value="QGBT-01")
+    st.markdown("---")
+    st.caption("Desenvolvido em Python | IEEE 1584-2018")
+
+st.title("⚡ Calculadora de Energia Incidente")
+
+# --- BLOCO 1: DADOS DE ENTRADA DO SISTEMA ---
+st.subheader("1. Dados do Sistema Elétrico")
+c1, c2, c3, c4 = st.columns(4)
+voltage = c1.selectbox("Tensão (V)", [208, 220, 380, 440, 480, 600], index=3)
+config_electrode = c2.selectbox("Configuração", ["VCB", "VCBB", "HCB", "VOA", "HOA"], index=0)
+ibf_ka = c3.number_input("Icc (kA)", 0.5, 100.0, 20.0, format="%.2f")
+gap_mm = c4.number_input("Gap (mm)", 1.0, 200.0, 32.0, format="%.1f")
+
+c5, c6, c7, c8 = st.columns(4)
+dist_mm = c5.number_input("Dist. Trabalho (mm)", 100, 2000, 610)
+is_open = config_electrode in ['VOA', 'HOA']
+h_mm = c6.number_input("Altura (H)", 100, 5000, 2000, disabled=is_open)
+w_mm = c7.number_input("Largura (W)", 100, 5000, 800, disabled=is_open)
+d_mm = c8.number_input("Profund. (D)", 100, 5000, 400, disabled=is_open)
+
 st.markdown("---")
 
-# --- SIDEBAR: DADOS DO EQUIPAMENTO ---
-with st.sidebar:
-    st.header("⚙️ Equipamento")
-    equip_name = st.text_input("Nome/TAG", value="QGBT-GERAL")
-    voltage = st.selectbox("Tensão Nominal (V)", [208, 220, 380, 440, 480, 600], index=3)
-    config_electrode = st.selectbox("Configuração Eletrodos", ["VCB", "VCBB", "HCB", "VOA", "HOA"], index=0)
+# --- BLOCO 2: CORRENTES CALCULADAS (VISUALIZAÇÃO ANTES DO TEMPO) ---
+# Fazemos um pré-cálculo com tempos fictícios (0) só para pegar as correntes
+pre_res = calcular_tudo(voltage, ibf_ka, config_electrode, gap_mm, dist_mm, 0, 0, h_mm, w_mm, d_mm)
+
+if pre_res:
+    st.subheader("2. Correntes de Arco Calculadas")
+    
+    col_i1, col_i2, col_i3 = st.columns(3)
+    
+    # Visual Destacado para as Correntes
+    with col_i1:
+        st.markdown(f"""
+        <div class="info-box">
+            <div style="font-size: 14px; color: #555;">Corrente de Arco (Iarc)</div>
+            <div style="font-size: 22px; font-weight: bold; color: #007bff;">{pre_res['i_arc']:.3f} kA</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with col_i2:
+        st.markdown(f"""
+        <div class="info-box">
+            <div style="font-size: 14px; color: #555;">Corrente Reduzida (Imin)</div>
+            <div style="font-size: 22px; font-weight: bold; color: #007bff;">{pre_res['i_min']:.3f} kA</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with col_i3:
+        st.info("ℹ️ Utilize estas correntes para consultar o Coordenograma.")
+
+    # --- BLOCO 3: ENTRADA DE TEMPOS (AGORA O USUÁRIO SABE AS CORRENTES) ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("3. Tempos de Atuação (Proteção)")
+    
+    ct1, ct2 = st.columns(2)
+    t_nom = ct1.number_input(f"Tempo para {pre_res['i_arc']:.2f} kA (ms)", min_value=0.0, value=100.0, format="%.1f")
+    t_min = ct2.number_input(f"Tempo para {pre_res['i_min']:.2f} kA (ms)", min_value=0.0, value=100.0, format="%.1f")
+    
+    # --- BLOCO 4: RESULTADOS FINAIS ---
+    # Agora calculamos de verdade com os tempos inseridos
+    final_res = calcular_tudo(voltage, ibf_ka, config_electrode, gap_mm, dist_mm, t_nom, t_min, h_mm, w_mm, d_mm)
     
     st.markdown("---")
-    st.subheader("Dimensões do Painel")
-    is_open = config_electrode in ['VOA', 'HOA']
-    h_mm = st.number_input("Altura (H) [mm]", value=2000, disabled=is_open)
-    w_mm = st.number_input("Largura (W) [mm]", value=800, disabled=is_open)
-    d_mm = st.number_input("Profundidade (D) [mm]", value=400, disabled=is_open)
-
-# --- ÁREA PRINCIPAL: INPUTS NUMÉRICOS (SEM SLIDERS) ---
-col_in1, col_in2, col_in3 = st.columns(3)
-
-with col_in1:
-    st.subheader("1. Sistema")
-    ibf_ka = st.number_input("Icc - Curto Circuito (kA)", min_value=0.1, value=20.0, format="%.2f")
-    gap_mm = st.number_input("Gap entre Condutores (mm)", min_value=1.0, value=32.0, format="%.1f")
-    dist_mm = st.number_input("Distância de Trabalho (mm)", min_value=100, value=610)
-
-with col_in2:
-    st.subheader("2. Tempo Nominal")
-    st.info("Para Corrente de Arco (Iarc)")
-    time_ms = st.number_input("Tempo de Atuação (ms)", min_value=0.0, value=100.0, format="%.1f")
-
-with col_in3:
-    st.subheader("3. Tempo Reduzido")
-    st.warning("Para Corrente Reduzida (Imin)")
-    # Por padrão, sugerimos o mesmo tempo, mas o usuário altera se a proteção for diferente
-    time_min_ms = st.number_input("Tempo de Atuação (Imin) [ms]", min_value=0.0, value=100.0, format="%.1f")
-
-# --- CÁLCULO ---
-# O Streamlit recalcula a cada Enter/Mudança de foco no input
-res = core_calculo_ieee1584(voltage, ibf_ka, config_electrode, gap_mm, dist_mm, time_ms, time_min_ms, h_mm, w_mm, d_mm)
-
-st.markdown("---")
-
-if res:
-    # Cores e Categorias
-    cat_txt, epi_txt, color_hex = obter_categoria_nfpa(res['e_final'])
+    st.subheader("4. Resultados Finais")
     
-    # --- RESULTADO PRINCIPAL ---
-    st.header("📊 Resultados Finais")
+    cat_txt, color_hex = obter_categoria_nfpa(final_res['e_final'])
     
-    col_main1, col_main2, col_main3 = st.columns([1, 1, 1.5])
+    cr1, cr2, cr3 = st.columns([1, 1, 1.5])
     
-    with col_main1:
-        st.metric("Energia Incidente", f"{res['e_final']:.2f} cal/cm²")
-        st.caption(f"Cenário: {res['pior_caso']}")
+    with cr1:
+        st.metric("Energia Incidente", f"{final_res['e_final']:.2f} cal/cm²")
+        st.caption(f"Pior Caso: {final_res['pior_caso']}")
         
-    with col_main2:
-        st.metric("Fronteira de Arco (AFB)", f"{res['afb_final']:.0f} mm")
-        st.caption("Distância segura sem EPI")
-        
-    with col_main3:
+    with cr2:
+        st.metric("Fronteira (AFB)", f"{final_res['afb_final']:.0f} mm")
+    
+    with cr3:
         st.markdown(f"""
-        <div style="background-color:{color_hex}; color:white; padding:15px; border-radius:10px; text-align:center;">
-            <h4 style="margin:0; color:white;">{cat_txt}</h4>
-            <p style="margin:0;">{epi_txt}</p>
+        <div class="risk-box" style="background-color: {color_hex};">
+            {cat_txt}
         </div>
         """, unsafe_allow_html=True)
 
-    # --- DETALHAMENTO TÉCNICO (CÉLULAS COMPLETAS) ---
-    st.subheader("📝 Detalhamento Técnico")
-    
-    with st.expander("Ver Todos os Parâmetros Calculados", expanded=True):
+    # --- BLOCO 5: MEMÓRIA DE CÁLCULO DETALHADA (EXPANDER) ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.expander("📝 Memória de Cálculo Detalhada (Clique para expandir)"):
+        st.markdown("### Coeficientes Utilizados (Tabelas IEEE 1584)")
         
-        c1, c2, c3 = st.columns(3)
+        d = final_res
         
-        # Coluna 1: Correntes e Fatores
-        with c1:
-            st.markdown("**Parâmetros de Corrente**")
-            st.write(f"Iarc (600V): **{res['ia_600']:.3f} kA**")
-            st.write(f"Iarc (Final): **{res['i_arc']:.3f} kA**")
-            st.write(f"Imin (Reduzida): **{res['i_min']:.3f} kA**")
-            st.markdown("---")
-            st.write(f"Variação CF: **{res['var_cf']:.4f}**")
+        # Mostra K1 a K10
+        cols_k = st.columns(5)
+        for i, val in enumerate(d['k']):
+            cols_k[i%5].write(f"**k{i+1}:** {val}")
             
-        # Coluna 2: Invólucro
-        with c2:
-            st.markdown("**Geometria e Invólucro**")
-            st.write(f"Tipo: **{res['box_type']}**")
-            if not is_open:
-                st.write(f"Dim. Equiv: **{res['h1']:.1f} x {res['w1']:.1f} in**")
-            st.write(f"Tam. Equiv (EES): **{res['ees']:.2f} in**")
-            st.write(f"Fator Correção (CF): **{res['cf']:.3f}**")
-
-        # Coluna 3: Cenários Individuais
-        with c3:
-            st.markdown("**Comparativo de Cenários**")
-            st.markdown(f"**1. Nominal ({time_ms} ms)**")
-            st.write(f"E = {res['e_nominal']:.3f} cal/cm²")
-            st.write(f"AFB = {res['afb_nominal']:.0f} mm")
+        st.markdown("---")
+        st.markdown("### Cálculos Intermediários")
+        m1, m2 = st.columns(2)
+        
+        with m1:
+            st.write(f"**Iarc_600:** {d['ia_600']:.4f} kA")
+            st.write(f"**VarCF (Eq. Redução):** {d['var_cf']:.4f}")
+            st.write(f"**Tamanho Equiv (EES):** {d['ees']:.2f} in")
+            st.write(f"**Dimensões Ajustadas:** H1={d['h1']:.2f}, W1={d['w1']:.2f}")
             
-            st.markdown(f"**2. Reduzida ({time_min_ms} ms)**")
-            st.write(f"E = {res['e_min']:.3f} cal/cm²")
-            st.write(f"AFB = {res['afb_min']:.0f} mm")
+        with m2:
+            st.write(f"**Fator Correção (CF):** {d['cf']:.4f}")
+            st.write(f"**Constante C2:** {d['C2']:.4f}")
+            st.write(f"**Constante C3:** {d['C3']:.4f}")
+        
+        st.markdown("---")
+        st.markdown("### Coeficientes de Caixa (b1-b3) e Tempo (tk)")
+        
+        if d['b']:
+            st.write(f"**b1:** {d['b'][0]} | **b2:** {d['b'][1]} | **b3:** {d['b'][2]}")
+        else:
+            st.write("Configuração Ar Livre (Sem coeficientes 'b')")
+            
+        st.write(f"Coeficientes de Tempo (tk): {d['tk']}")
 
 else:
-    st.error("Erro matemático: Verifique a combinação Tensão x Corrente (Raiz negativa na fórmula IEEE).")
+    st.error("Erro nos dados de entrada.")
